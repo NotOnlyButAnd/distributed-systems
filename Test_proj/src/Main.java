@@ -1,7 +1,6 @@
 import mpi.*;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import java.io.BufferedReader;
@@ -9,6 +8,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -50,51 +50,100 @@ public class Main {
         BufferedReader reader = new BufferedReader(new FileReader(inpPath));
         String str;
 
-        ArrayList<String> list = new ArrayList<>();
+        ArrayList<Integer> list = new ArrayList<>();
         while((str = reader.readLine()) != null ){
             if(!str.isEmpty()){
-                list.add(str);
+                list.add(Integer.valueOf(str));
             }}
-        String[] stringArr = list.toArray(new String[0]);
+        Integer[] intArr = list.toArray(new Integer[0]);
 
         String wsPath = new File("").getAbsolutePath();
         wsPath += "\\.idea\\workspace.xml";
 
-        MPI.Init(args);
-        int rank = MPI.COMM_WORLD.Rank();
-        if (rank == 0)
-        {
-            System.out.println("\nResponse from "+rank);
-            for (String s : stringArr) System.out.print(s + " ");
-            System.out.println("\nWorkspace Path: "+wsPath);
-            
-            // лезем в xml конфигурации и изменяем кол-во процессов на n + 3
-            File xmlFile = new File(wsPath);
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            DocumentBuilder builder;
+        // лезем в xml конфигурации и изменяем кол-во процессов на n + 3
+        File xmlFile = new File(wsPath);
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder;
 
-            try {
-                builder = factory.newDocumentBuilder();
-                Document doc = builder.parse(xmlFile);
-                doc.getDocumentElement().normalize();
+        try {
+            builder = factory.newDocumentBuilder();
+            Document doc = builder.parse(xmlFile);
+            doc.getDocumentElement().normalize();
 
-                // обновляем значения
-                updateElementValue(doc, stringArr.length + 3);
+            // обновляем значения
+            updateElementValue(doc, intArr.length + 3);
 
-                // запишем отредактированный элемент в файл
-                doc.getDocumentElement().normalize();
-                TransformerFactory transformerFactory = TransformerFactory.newInstance();
-                Transformer transformer = transformerFactory.newTransformer();
-                DOMSource source = new DOMSource(doc);
-                StreamResult result = new StreamResult(new File(wsPath));
-                transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-                transformer.transform(source, result);
-                System.out.println("XML successfully changed!");
-
-            } catch (Exception exc) {
-                exc.printStackTrace();
-            }
+            // запишем отредактированный элемент в файл
+            doc.getDocumentElement().normalize();
+            TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            Transformer transformer = transformerFactory.newTransformer();
+            DOMSource source = new DOMSource(doc);
+            StreamResult result = new StreamResult(new File(wsPath));
+            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+            transformer.transform(source, result);
+        } catch (Exception exc) {
+            exc.printStackTrace();
         }
+
+        // считаем кол-во четных и нечетных эл-тов
+
+        int cntEv = 0, cntNotEv = 0;
+
+        for (Integer i : intArr)
+            if (i % 2 == 0)
+                cntEv++;
+            else
+                cntNotEv++;
+
+        MPI.Init(args);
+
+        int rank = MPI.COMM_WORLD.Rank();
+
+        // заполняем буфферы для каждого процесса (проверено, все норм)
+        // заполнены будут 0..n-1 => n, n+1, n+2 - свободны (6,7,8 в тестовом случае)
+        if (rank < intArr.length){
+            int[] buf = new int[1];
+            buf[0] = intArr[rank];
+            //System.out.println();
+
+            // если буффер хранит четное число, то отправляем на 6 проц
+            // если НЕчетное, то на 7 проц
+            if (buf[0] % 2 == 0) {
+                MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, 6, 2);
+                //System.out.println("Proc " + rank + " buf = " + Arrays.toString(buf) + "\n    Yay! i'm even!");
+            }
+            else {
+                MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, 7, 1);
+                //System.out.println("Proc " + rank + " buf = " + Arrays.toString(buf) + "\n    Yay! i'm NOT even!");
+            }
+            System.out.println("--" + Arrays.toString(buf) + "         END OF "+rank+" --");
+        }
+
+        // принимаем отправленные с других процов четные числа
+        if (rank == 6){
+            int[] buf = new int[cntEv];
+
+            for (int i=0; i<cntEv; i++)
+                MPI.COMM_WORLD.Recv(buf, i, 1, MPI.INT, MPI.ANY_SOURCE, 2);
+            System.out.println("----" + Arrays.toString(buf) + "         END OF "+rank+" ----");
+        }
+        // принимаем отправленные с других процов НЕчетные числа
+        if (rank == 7){
+            int[] buf = new int[cntNotEv];
+
+            for (int i=0; i<cntNotEv; i++)
+                MPI.COMM_WORLD.Recv(buf,i,1,MPI.INT,MPI.ANY_SOURCE,1);
+
+            System.out.println("----" + Arrays.toString(buf) + "         END OF "+rank+" ----");
+        }
+
+        // Вывод массива прочитанного 1 раз, проверено - все норм
+        /*if (rank == 0)
+        {
+            System.out.println("\n----\nResponse from "+rank);
+            for (Integer i : intArr) System.out.print(i + " ");
+            System.out.println("\nWorkspace Path: "+wsPath+"\n----\n");
+        }*/
         MPI.Finalize();
     }
 
