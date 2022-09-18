@@ -109,32 +109,57 @@ public class Main {
             // если буффер хранит четное число, то отправляем на 6 проц
             // если НЕчетное, то на 7 проц
             if (buf[0] % 2 == 0) {
-                MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, 6, 2);
+                MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, intArr.length, 2);
                 //System.out.println("Proc " + rank + " buf = " + Arrays.toString(buf) + "\n    Yay! i'm even!");
             }
             else {
-                MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, 7, 1);
+                MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, intArr.length + 1, 1);
                 //System.out.println("Proc " + rank + " buf = " + Arrays.toString(buf) + "\n    Yay! i'm NOT even!");
             }
             System.out.println("--" + Arrays.toString(buf) + "         END OF "+rank+" --");
         }
 
         // принимаем отправленные с других процов четные числа
-        if (rank == 6){
+        if (rank == intArr.length){
             int[] buf = new int[cntEv];
 
             for (int i=0; i<cntEv; i++)
                 MPI.COMM_WORLD.Recv(buf, i, 1, MPI.INT, MPI.ANY_SOURCE, 2);
+
+            // сортируем массив и отправляем дальше его
+            Arrays.sort(buf);
+            MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, intArr.length + 2, 3);
+
             System.out.println("----" + Arrays.toString(buf) + "         END OF "+rank+" ----");
         }
         // принимаем отправленные с других процов НЕчетные числа
-        if (rank == 7){
+        if (rank == intArr.length + 1){
             int[] buf = new int[cntNotEv];
 
             for (int i=0; i<cntNotEv; i++)
                 MPI.COMM_WORLD.Recv(buf,i,1,MPI.INT,MPI.ANY_SOURCE,1);
 
+            // сортируем массив и отправляем дальше его
+            Arrays.sort(buf);
+            MPI.COMM_WORLD.Send(buf, 0, buf.length, MPI.INT, intArr.length + 2, 3);
+
             System.out.println("----" + Arrays.toString(buf) + "         END OF "+rank+" ----");
+        }
+
+        if (rank == intArr.length + 2){
+            int[] buf1 = new int[cntEv];
+            int[] buf2 = new int[cntNotEv];
+            int[] result = new int[cntEv+cntNotEv];
+
+            MPI.COMM_WORLD.Recv(buf1,0,buf1.length,MPI.INT,intArr.length - 1 + 1,3);
+            MPI.COMM_WORLD.Recv(buf2,0,buf2.length,MPI.INT,intArr.length + 1,3);
+
+            System.out.println("----" + Arrays.toString(buf1) + " + " + Arrays.toString(buf2) + " = " + Arrays.toString(result) + "         END OF "+rank+" ----");
+
+            result = mergeIntArrs(buf1, buf2, cntEv, cntNotEv);
+
+            System.out.println("----" + Arrays.toString(buf1) + " + " + Arrays.toString(buf2) + " = " + Arrays.toString(result) + "         END OF "+rank+" ----");
+
         }
 
         // Вывод массива прочитанного 1 раз, проверено - все норм
@@ -154,12 +179,42 @@ public class Main {
         // проходим по каждому элементу component
         for(int i=0; i<opts.getLength();i++){
             opt = (Element) opts.item(i); // приведение к типу Element
-            //System.out.println("  curr name: "+opt.getAttribute("name"));
             if (opt.getAttribute("name").equals("VM_PARAMETERS")){
-                //System.out.print("    YAY: "+opt.getAttribute("value"));
                 opt.setAttribute("value","-jar H:\\mpj_v0.44\\lib\\starter.jar -np "+val);
-                //System.out.println("    now...: "+opt.getAttribute("value"));
             }
         }
+    }
+
+    public static int[] mergeIntArrs(int[] buf1, int[] buf2, int l1, int l2) {
+        int[] merged = new int[l1 + l2];
+
+        int p1, p2, mergedPos, cntr;
+        p1 = p2 = mergedPos = cntr = 0;
+
+        while(p1 < l1 && p2 < l2) {
+            if (buf1[p1] < buf2[p2]) {
+                merged[mergedPos++] = buf1[p1++];
+            } else {
+                merged[mergedPos++] = buf2[p2++];
+            }
+            cntr++;
+            System.out.println("--------------- " + Arrays.toString(merged));
+        }
+
+        while (p1 < l1) {
+            merged[mergedPos++] = buf1[p1++];
+            cntr++;
+            System.out.println("--------------- " + Arrays.toString(merged));
+        }
+
+        while (p2 < l2) {
+            merged[mergedPos++] = buf2[p2++];
+            cntr++;
+            System.out.println("--------------- " + Arrays.toString(merged));
+        }
+
+        System.out.println("Steps count:" + cntr);
+
+        return merged;
     }
 }
